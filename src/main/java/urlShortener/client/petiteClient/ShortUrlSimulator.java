@@ -1,6 +1,8 @@
 package urlShortener.client.petiteClient;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -15,6 +17,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -26,6 +31,7 @@ public class ShortUrlSimulator {
     @Value("${petite.client.url.store.file.name}")
     private String fileName;
     private static final Logger logger = Logger.getLogger(ShortUrlSimulator.class.getName());
+    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
 
     private List<String> suckInURLs (String fileName) {
         List<String> urls = null;
@@ -110,6 +116,26 @@ public class ShortUrlSimulator {
             logger.info("Hit: " + code + " -> " + responseEntity.getStatusCode());
         }
     }
+    @EventListener(ApplicationReadyEvent.class)
+    public void onStartup () {
+         scheduler.schedule(this::queryTheServiceForBestBuy, 3, TimeUnit.MINUTES);
+    }
+
+    @Scheduled(cron = "0 0/30 * * * ?")
+    public void queryTheServiceForBestBuy () { //11855f
+        logger.info("BEST BUY forever");
+        for (int i = 0; i < 15000; i++) {
+            String code = "11855f";//shortCodes.get(rand.nextInt(shortCodes.size()));
+            logger.info("Obtained code = " + code);
+            ResponseEntity<String> responseEntity = webClient.get()
+                    .uri("/urlShort/api/v1/{id}", code)
+                    .retrieve()
+                    .toEntity(String.class)
+                    .block();
+            logger.info("Hit: " + code + " -> " + responseEntity.getStatusCode());
+        }
+    }
+
 
     public boolean isCacheWarm () {
         try {
