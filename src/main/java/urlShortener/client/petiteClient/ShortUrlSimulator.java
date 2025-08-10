@@ -42,8 +42,8 @@ public class ShortUrlSimulator {
             throw new RuntimeException(e);
         }
         try {
-            logger.info("Waiting 100 seconds before tickling cache");
-            Thread.sleep(100_000);
+            logger.info("Waiting 15 seconds before tickling cache. Making sure Mongo is happy and ready.");
+            Thread.sleep(15_000);
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }
