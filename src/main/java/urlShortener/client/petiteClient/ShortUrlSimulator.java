@@ -41,6 +41,12 @@ public class ShortUrlSimulator {
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
+        try {
+            logger.info("Waiting 100 seconds before tickling cache");
+            Thread.sleep(100_000);
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
         return urls;
     }
 
@@ -49,15 +55,20 @@ public class ShortUrlSimulator {
             // a trick to wait until the service is ready ...
             String retryResult = callWithRetry();
             logger.info("Result of waiting for service is :" + retryResult);
-        } catch (InterruptedException e) {
+        } catch (InterruptedException | RuntimeException e) {
             logger.log(Level.SEVERE,"Failed at waiting for the service ..." + e.getMessage(), e);
-            throw new RuntimeException(e);
+           /// throw new RuntimeException(e);
         }
         logger.info("Cache is " + (isCacheWarm() ? "warm" : "cold"));
         try {
             List<String> urls = suckInURLs(fileName);
 
             for (String url : urls) {
+                logger.info("Current ulr is = " + url);
+                if(url == null || url.isBlank()) {
+                    logger.info("EMPTY UR: " + url + "||");
+                    continue;
+                }
                 Map<String, String> body = Map.of("url", url);
                 ResponseEntity<Map<String, Object>> response = webClient.post()
                         .uri("/urlShort/api/v1/shorten")
@@ -97,7 +108,7 @@ public class ShortUrlSimulator {
                 Thread.sleep(3000);
             }
         }
-        throw new RuntimeException("Service unavailable after " + maxRetries + "retries");
+        throw new RuntimeException("Service unavailable after " + maxRetries + " retries");
     }
     //This method is supposed just to trigger action on the server, and it does not expect any response.
     //If the failure happened on the server we will just log in the status code ... not perfect ...yet
