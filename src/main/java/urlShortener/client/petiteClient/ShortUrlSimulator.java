@@ -1,14 +1,15 @@
 package urlShortener.client.petiteClient;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
+import urlShortener.client.petiteClient.dto.CacheStats;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -17,11 +18,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 @Component
 public class ShortUrlSimulator {
@@ -30,20 +26,27 @@ public class ShortUrlSimulator {
     private final List<String> shortCodes = new ArrayList<>();
     @Value("${petite.client.url.store.file.name}")
     private String fileName;
-    private static final Logger logger = Logger.getLogger(ShortUrlSimulator.class.getName());
-    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+    private static final Logger logger = LoggerFactory.getLogger(ShortUrlSimulator.class.getName());
 
-    private List<String> suckInURLs (String fileName) {
-        List<String> urls = null;
+    public ShortUrlSimulator () {
+        System.out.println("SHORTIE " + this.hashCode());
         try {
-            System.out.println("FILE IS = " + fileName);
+            Thread.sleep(1000);
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+    }
+    private List<String> suckInURLs (String fileName) {
+        List<String> urls;
+        try {
+            logger.info("Original Storage File is = {}", fileName);
             urls = Files.readAllLines(Paths.get(fileName));
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
         try {
-            logger.info("Waiting 15 seconds before tickling cache. Making sure Mongo is happy and ready.");
-            Thread.sleep(15_000);
+            logger.info("Waiting 10 seconds before tickling cache. Making sure Mongo is happy and ready.");
+            Thread.sleep(10_000);
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }
@@ -54,19 +57,19 @@ public class ShortUrlSimulator {
         try {
             // a trick to wait until the service is ready ...
             String retryResult = callWithRetry();
-            logger.info("Result of waiting for service is :" + retryResult);
+            logger.info("Result of waiting for service is :{}", retryResult);
         } catch (InterruptedException | RuntimeException e) {
-            logger.log(Level.SEVERE,"Failed at waiting for the service ..." + e.getMessage(), e);
-           /// throw new RuntimeException(e);
+            logger.error("Failed at waiting for the service ...{}", e.getMessage(), e);
+           ///// throw new RuntimeException(e);
         }
-        logger.info("Cache is " + (isCacheWarm() ? "warm" : "cold"));
+        logger.info("Cache is {}", isCacheWarm() ? "warm" : "cold");
         try {
             List<String> urls = suckInURLs(fileName);
 
             for (String url : urls) {
-                logger.info("Current ulr is = " + url);
+                logger.info("Current ulr is = {}", url);
                 if(url == null || url.isBlank()) {
-                    logger.info("EMPTY UR: " + url + "||");
+                    logger.info("EMPTY UR: {}||", url);
                     continue;
                 }
                 Map<String, String> body = Map.of("url", url);
@@ -80,13 +83,13 @@ public class ShortUrlSimulator {
                 if (response != null && response.getStatusCode().is2xxSuccessful()) {
                     String code = (String) response.getBody().get("shortUrl");
                     shortCodes.add(code);
-                    logger.info("Shortened: " + url + " -> " + code);
+                    logger.info("Shortened: {} -> {}", url, code);
                 }
                 Thread.sleep(100);
             }
             queryTheService();
         } catch (Exception e) {
-            logger.log(Level.SEVERE, e.getMessage(), e);
+            logger.error(e.getMessage(), e);
         }
     }
 
@@ -100,11 +103,11 @@ public class ShortUrlSimulator {
                         .retrieve()
                         .bodyToMono(String.class)
                         .block();
-                logger.info("Server is alive and ready : " + result);
+                logger.info("Server is alive and ready : {}", result);
                 return result;
             } catch (Exception e) {
                 attempt++;
-                logger.info("Service not ready, retrying in 3 seconds... attempt " + attempt);
+                logger.info("Service not ready, retrying in 3 seconds... attempt {}", attempt);
                 Thread.sleep(3000);
             }
         }
@@ -112,54 +115,41 @@ public class ShortUrlSimulator {
     }
     //This method is supposed just to trigger action on the server, and it does not expect any response.
     //If the failure happened on the server we will just log in the status code ... not perfect ...yet
-    //TODO: perfect it ...
-    @Scheduled(cron = "0 0/30 * * * ?")
     public void queryTheService () {
         Random rand = new Random();
-        for (int i = 0; i < 500; i++) {
+        for (int i = 0; i < 20; i++) {
             String code = shortCodes.get(rand.nextInt(shortCodes.size()));
-            logger.info("Obtained code = " + code);
-            ResponseEntity<String> responseEntity = webClient.get()
-                    .uri("/urlShort/api/v1/{id}", code)
-                    .retrieve()
-                    .toEntity(String.class)
-                    .block();
-            logger.info("Hit: " + code + " -> " + responseEntity.getStatusCode());
+            logger.info("Obtained random code = {}", code);
+            try {
+                ResponseEntity<String> responseEntity = webClient.get()
+                        .uri("/urlShort/api/v1/{id}", code)
+                        .retrieve()
+                        .toEntity(String.class)
+                        .block();
+                logger.info("Hit: {} -> {}", code, responseEntity.getStatusCode());
+            } catch (WebClientResponseException e) {
+                // Handles HTTP errors (404, 410, etc.)
+                logger.warn("Expired/invalid hit: {} -> {}", code, e.getStatusCode());
+            } catch (Exception e) {
+                // Handles connection issues, timeouts, etc.
+                logger.error("Unexpected error for code {}: {}", code, e.getMessage());
+            }
         }
     }
-    @EventListener(ApplicationReadyEvent.class)
-    public void onStartup () {
-         scheduler.schedule(this::queryTheServiceForBestBuy, 3, TimeUnit.MINUTES);
-    }
-
-    @Scheduled(cron = "0 0/30 * * * ?")
-    public void queryTheServiceForBestBuy () { //11855f
-        logger.info("BEST BUY forever");
-        for (int i = 0; i < 15000; i++) {
-            String code = "11855f";//shortCodes.get(rand.nextInt(shortCodes.size()));
-            logger.info("Obtained code = " + code);
-            ResponseEntity<String> responseEntity = webClient.get()
-                    .uri("/urlShort/api/v1/{id}", code)
-                    .retrieve()
-                    .toEntity(String.class)
-                    .block();
-            logger.info("Hit: " + code + " -> " + responseEntity.getStatusCode());
-        }
-    }
-
 
     public boolean isCacheWarm () {
         try {
-            Integer cacheSize = webClient.get()
+            CacheStats stats = webClient.get()
                     .uri("/urlShort/api/v1/cache_size")
                     .retrieve()
-                    .bodyToMono(Integer.class)
-                    .block(); // Still blocking here if you’re not in a reactive app
+                    .bodyToMono(CacheStats.class)
+                    .block();
 
-            logger.info("Retrieved Cache size: " + cacheSize);
-            return (cacheSize != null && cacheSize > 50);
+
+                logger.info("Retrieved Cache size is: {}", stats == null ? 0 : stats.size());
+                return (stats != null  && stats.size() > 50);
         } catch (Exception e) {
-            logger.log(Level.SEVERE,"EXCEPTION while retrieving cache size: " + e.getMessage());
+            logger.error("EXCEPTION while retrieving cache size: {}", e.getMessage());
         }
         return false;
     }
