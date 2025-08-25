@@ -85,8 +85,8 @@ public class ShortUrlSimulator {
                     shortCodes.add(code);
                     logger.info("Shortened: {} -> {}", url, code);
                 }
-                Thread.sleep(100);
             }
+            logger.info("Done pre-populating data store.");
             queryTheService();
         } catch (Exception e) {
             logger.error(e.getMessage(), e);
@@ -117,7 +117,7 @@ public class ShortUrlSimulator {
     //If the failure happened on the server we will just log in the status code ... not perfect ...yet
     public void queryTheService () {
         Random rand = new Random();
-        for (int i = 0; i < 20; i++) {
+        for (int i = 0; i < 3000; i++) {
             String code = shortCodes.get(rand.nextInt(shortCodes.size()));
             logger.info("Obtained random code = {}", code);
             try {
@@ -135,6 +135,7 @@ public class ShortUrlSimulator {
                 logger.error("Unexpected error for code {}: {}", code, e.getMessage());
             }
         }
+        logger.info("Done exercising ...");
     }
 
     public boolean isCacheWarm () {
